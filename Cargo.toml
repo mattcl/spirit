@@ -1,0 +1,14 @@
+[package]
+name = "spirit"
+version = "0.1.0"
+authors = ["Matt Chun-Lum <matt@questionable.engineering>"]
+edition = "2018"
+description = "Change Govee device colors in response to command status"
+
+[profile.release]
+lto = true
+
+[dependencies]
+clap = "*"
+colorsys = "0.6.0"
+govee-rs = { git = "https://github.com/mattcl/govee-rs" }
