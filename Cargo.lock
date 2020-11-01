@@ -216,7 +216,7 @@ dependencies = [
 [[package]]
 name = "govee-rs"
 version = "0.1.0"
-source = "git+https://github.com/mattcl/govee-rs#31b25d0e31527266392a92a008e29a9eeb5b7f93"
+source = "git+https://github.com/mattcl/govee-rs#22bb2a8816bc9fe68ab7139f8a0a930096222cb4"
 dependencies = [
  "reqwest",
  "serde",

@@ -1,5 +1,4 @@
-use std::env;
-use std::process;
+use std::collections::HashSet;
 use std::process::Command;
 
 use clap::{
@@ -7,15 +6,14 @@ use clap::{
     crate_description,
     crate_version,
     App,
-    AppSettings,
     Arg,
     ArgMatches,
 };
 use colorsys::Rgb;
 use govee_rs::{API_BASE, Client};
-use govee_rs::schema::{Color, PowerState};
+use govee_rs::schema::{Color, Device, PowerState};
 
-use crate::error::{Result, UnwrapOrExit};
+use crate::error::{Result, SpiritError, UnwrapOrExit};
 
 mod error;
 
@@ -25,9 +23,23 @@ fn main() {
         .version(crate_version!())
         .author(crate_authors!())
         .arg(
+            Arg::with_name("govee_key")
+                .help("gove API key")
+                .long("key")
+                .short("k")
+                .env("GOVEE_KEY")
+                .hide_env_values(true)
+                .required(false)
+        )
+        .arg(
             Arg::with_name("device")
                 .help("device name - if not provided, will operate on all devices")
-                .required(false),
+                .long("device")
+                .short("d")
+                .takes_value(true)
+                .multiple(true)
+                .number_of_values(1)
+                .required(false)
         )
         .subcommand(
             App::new("toggle")
@@ -72,15 +84,15 @@ fn main() {
         );
     let matches = app.clone().get_matches();
 
-    // TODO: better error when env var not set - MCL - 2020-10-30
-    let client = Client::new(API_BASE, &env::var("GOVEE_KEY").expect("Missing GOVEE_KEY env var"));
+    let client = make_client(&matches).unwrap_or_exit("GOVEE_KEY env var must be set");
+    let devices = get_devices(&client, &matches).unwrap_or_exit("Could not fetch list of devices");
 
     match matches.subcommand() {
         ("toggle", Some(toggle_matches)) => {
-            toggle(&client, toggle_matches).unwrap_or_exit("Could not toggle power state");
+            toggle(&client, &devices, toggle_matches).unwrap_or_exit("Could not toggle power state");
         },
         ("check", Some(check_matches)) => {
-            check(&client, check_matches).unwrap_or_exit("Could not check given command");
+            check(&client, &devices, check_matches).unwrap_or_exit("Could not check given command");
         }
         // If we weren't given a subcommand we know how to handle, display
         // the help message and exit.
@@ -90,27 +102,54 @@ fn main() {
     };
 }
 
-fn toggle(client: &Client, matches: &ArgMatches) -> Result<()> {
+fn make_client(matches: &ArgMatches) -> Result<Client> {
+    if let Some(key) = matches.value_of("govee_key") {
+        return Ok(Client::new(API_BASE, key));
+    }
+
+    Err(SpiritError::Error("must either supply govee key or set GOVEE_KEY".to_string()))
+}
+
+fn get_devices(client: &Client, matches: &ArgMatches) -> Result<Vec<Device>> {
+    let devices = client.devices()?.devices;
+
+    if matches.is_present("device") {
+        let device_names: HashSet<&str> = matches.values_of("device").unwrap().collect();
+        let filtered_devices: Vec<Device> = devices
+            .into_iter()
+            .filter(|device| device_names.contains(device.name.as_str()))
+            .collect();
+
+        if filtered_devices.len() < 1 {
+            return Err(SpiritError::Error("No devices matched".to_string()));
+        }
+
+        return Ok(filtered_devices);
+    }
+
+    Ok(devices)
+}
+
+fn toggle(client: &Client, devices: &Vec<Device>, matches: &ArgMatches) -> Result<()> {
     let mut desired_state = PowerState::On;
 
     if matches.is_present("off") {
         desired_state = PowerState::Off;
     }
 
-    for device in client.devices()?.devices {
+    for device in devices {
         client.toggle(&device, desired_state.clone())?;
     }
 
     Ok(())
 }
 
-fn check(client: &Client, matches: &ArgMatches) -> Result<()> {
+fn check(client: &Client, devices: &Vec<Device>, matches: &ArgMatches) -> Result<()> {
     let success = Rgb::from_hex_str(matches.value_of("success").unwrap())?;
     let fail = Rgb::from_hex_str(matches.value_of("fail").unwrap())?;
 
     let parsed: Vec<&str> = matches.values_of("cmd").unwrap().collect();
 
-    // FIXME: figure out proper error to return here - MCL - 2020-10-30
     let (cmd, args) = parsed.split_first().expect("command was empty");
 
     let res = Command::new(cmd).args(args).status()?;
@@ -129,7 +168,7 @@ fn check(client: &Client, matches: &ArgMatches) -> Result<()> {
         };
     }
 
-    for device in client.devices()?.devices {
+    for device in devices {
         client.set_color(&device, &color)?;
     }
 

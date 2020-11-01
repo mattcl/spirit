@@ -6,8 +6,10 @@ pub type Result<T> = std::result::Result<T, SpiritError>;
 /// SpiritError enumerates all possible errors returned by this library
 #[derive(Debug)]
 pub enum SpiritError {
-    MyError(),
-    MyErrorWithMessage(String),
+    Error(String),
+
+    /// Represents env VarErrors
+    EnvError(std::env::VarError),
 
     /// Represents all other cases of GoveeError
     GoveeError(govee_rs::error::GoveeError),
@@ -22,8 +24,8 @@ pub enum SpiritError {
 impl std::error::Error for SpiritError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match *self {
-            SpiritError::MyError() => None,
-            SpiritError::MyErrorWithMessage(_) => None,
+            SpiritError::Error(_) => None,
+            SpiritError::EnvError(ref err) => Some(err),
             SpiritError::GoveeError(ref err) => Some(err),
             SpiritError::IOError(ref err) => Some(err),
             SpiritError::ParseError(ref err) => Some(err),
@@ -34,16 +36,20 @@ impl std::error::Error for SpiritError {
 impl std::fmt::Display for SpiritError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match *self {
-            SpiritError::MyError() => {
-                write!(f, "some error message")
-            }
-            SpiritError::MyErrorWithMessage(ref msg) => {
-                write!(f, "some error with msg '{}'", msg)
+            SpiritError::Error(ref msg) => {
+                write!(f, "{}", msg)
             },
+            SpiritError::EnvError(ref err) => err.fmt(f),
             SpiritError::GoveeError(ref err) => err.fmt(f),
             SpiritError::IOError(ref err) => err.fmt(f),
             SpiritError::ParseError(ref err) => err.fmt(f),
         }
+    }
+}
+
+impl From<std::env::VarError> for SpiritError {
+    fn from(err: std::env::VarError) -> SpiritError {
+        SpiritError::EnvError(err)
     }
 }
 
