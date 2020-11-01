@@ -6,6 +6,7 @@ use clap::{
     crate_description,
     crate_version,
     App,
+    AppSettings,
     Arg,
     ArgMatches,
 };
@@ -22,6 +23,8 @@ fn main() {
         .about(crate_description!())
         .version(crate_version!())
         .author(crate_authors!())
+        .global_setting(AppSettings::ColorAuto)
+        .global_setting(AppSettings::ColoredHelp)
         .arg(
             Arg::with_name("govee_key")
                 .help("gove API key")
@@ -82,6 +85,7 @@ fn main() {
                         .last(true)
                 ),
         );
+
     let matches = app.clone().get_matches();
 
     let client = make_client(&matches).unwrap_or_exit("GOVEE_KEY env var must be set");
