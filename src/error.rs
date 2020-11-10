@@ -1,4 +1,5 @@
 use colorsys::ParseError;
+use config::ConfigError;
 use govee_rs;
 
 pub type Result<T> = std::result::Result<T, SpiritError>;
@@ -7,6 +8,9 @@ pub type Result<T> = std::result::Result<T, SpiritError>;
 #[derive(Debug)]
 pub enum SpiritError {
     Error(String),
+
+    /// Represents all other cases of GoveeError
+    ConfigError(ConfigError),
 
     /// Represents env VarErrors
     EnvError(std::env::VarError),
@@ -24,6 +28,7 @@ pub enum SpiritError {
 impl std::error::Error for SpiritError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match *self {
+            SpiritError::ConfigError(ref err) => Some(err),
             SpiritError::Error(_) => None,
             SpiritError::EnvError(ref err) => Some(err),
             SpiritError::GoveeError(ref err) => Some(err),
@@ -39,11 +44,18 @@ impl std::fmt::Display for SpiritError {
             SpiritError::Error(ref msg) => {
                 write!(f, "{}", msg)
             },
+            SpiritError::ConfigError(ref err) => err.fmt(f),
             SpiritError::EnvError(ref err) => err.fmt(f),
             SpiritError::GoveeError(ref err) => err.fmt(f),
             SpiritError::IOError(ref err) => err.fmt(f),
             SpiritError::ParseError(ref err) => err.fmt(f),
         }
+    }
+}
+
+impl From<ConfigError> for SpiritError {
+    fn from(err: ConfigError) -> SpiritError {
+        SpiritError::ConfigError(err)
     }
 }
 

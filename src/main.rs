@@ -1,5 +1,9 @@
 use std::collections::HashSet;
+use std::ffi::OsStr;
+use std::path::Path;
 use std::process::Command;
+use std::thread;
+use std::time;
 
 use clap::{
     crate_authors,
@@ -16,9 +20,26 @@ use govee_rs::schema::{Color, Device, PowerState};
 
 use crate::error::{Result, SpiritError, UnwrapOrExit};
 
+use config;
+
 mod error;
 
 fn main() {
+    let settings = load_config().unwrap_or_exit("invalid config file");
+
+    let mut success_color = "#00ff00".to_string();
+    let mut fail_color = "#ff0000".to_string();
+
+    if let Some(settings) = settings {
+        if let Ok(success) = settings.get_str("success") {
+            success_color = success.clone();
+        }
+
+        if let Ok(fail) = settings.get_str("fail") {
+            fail_color = fail.clone();
+        }
+    }
+
     let mut app = App::new("spirit")
         .about(crate_description!())
         .version(crate_version!())
@@ -59,6 +80,14 @@ fn main() {
                         .long("off")
                         .conflicts_with("on")
                 )
+                .arg(
+                    Arg::with_name("color")
+                        .long("color")
+                        .short("c")
+                        .help("the color to set the lights to when turning on")
+                        .conflicts_with("off")
+                        .takes_value(true)
+                )
         )
         .subcommand(
             App::new("check")
@@ -68,14 +97,16 @@ fn main() {
                         .long("success")
                         .short("s")
                         .help("hex color to set on success")
-                        .default_value("#00ff00")
+                        .env("SPIRIT_SUCCESS_COLOR")
+                        .default_value(&success_color)
                 )
                 .arg(
                     Arg::with_name("fail")
                         .long("fail")
                         .short("f")
                         .help("hex color to set on fail")
-                        .default_value("#ff0000")
+                        .env("SPIRIT_FAIL_COLOR")
+                        .default_value(&fail_color)
                 )
                 .arg(
                     Arg::with_name("cmd")
@@ -85,6 +116,7 @@ fn main() {
                         .last(true)
                 ),
         );
+
 
     let matches = app.clone().get_matches();
 
@@ -104,6 +136,16 @@ fn main() {
             app.print_help().expect("Unable to display help message");
         }
     };
+}
+
+fn load_config() -> Result<Option<config::Config>> {
+    let mut settings = config::Config::new();
+    // TODO: make this configurable - MCL - 2020-11-10
+    if Path::new(OsStr::new("spirit.toml")).exists() {
+        Ok(Some(settings.merge(config::File::with_name("spirit"))?.to_owned()))
+    } else {
+        Ok(None)
+    }
 }
 
 fn make_client(matches: &ArgMatches) -> Result<Client> {
@@ -143,6 +185,22 @@ fn toggle(client: &Client, devices: &Vec<Device>, matches: &ArgMatches) -> Resul
 
     for device in devices {
         client.toggle(&device, desired_state.clone())?;
+    }
+
+    if let Some(color_str) = matches.value_of("color") {
+        // this is dumb, but the api seems to require this pause so we don't
+        // clobber the power state we just tried to set
+        thread::sleep(time::Duration::from_millis(1000));
+        let parsed = Rgb::from_hex_str(color_str)?;
+        let color = Color {
+            r: parsed.get_red() as u32,
+            g: parsed.get_green() as u32,
+            b: parsed.get_blue() as u32,
+        };
+
+        for device in devices {
+            client.set_color(&device, &color)?;
+        }
     }
 
     Ok(())

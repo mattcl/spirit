@@ -11,4 +11,5 @@ lto = true
 [dependencies]
 clap = "*"
 colorsys = "0.6.0"
+config = "0.10"
 govee-rs = { git = "https://github.com/mattcl/govee-rs" }
