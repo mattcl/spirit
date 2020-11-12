@@ -30,7 +30,7 @@ fn main() {
     let mut success_color = "#00ff00".to_string();
     let mut fail_color = "#ff0000".to_string();
 
-    if let Some(settings) = settings {
+    if let Some(ref settings) = settings {
         if let Ok(success) = settings.get_str("success") {
             success_color = success.clone();
         }
@@ -125,7 +125,7 @@ fn main() {
 
     match matches.subcommand() {
         ("toggle", Some(toggle_matches)) => {
-            toggle(&client, &devices, toggle_matches).unwrap_or_exit("Could not toggle power state");
+            toggle(&client, &devices, toggle_matches, settings).unwrap_or_exit("Could not toggle power state");
         },
         ("check", Some(check_matches)) => {
             check(&client, &devices, check_matches).unwrap_or_exit("Could not check given command");
@@ -176,7 +176,7 @@ fn get_devices(client: &Client, matches: &ArgMatches) -> Result<Vec<Device>> {
     Ok(devices)
 }
 
-fn toggle(client: &Client, devices: &Vec<Device>, matches: &ArgMatches) -> Result<()> {
+fn toggle(client: &Client, devices: &Vec<Device>, matches: &ArgMatches, settings: Option<config::Config>) -> Result<()> {
     let mut desired_state = PowerState::On;
 
     if matches.is_present("off") {
@@ -187,11 +187,22 @@ fn toggle(client: &Client, devices: &Vec<Device>, matches: &ArgMatches) -> Resul
         client.toggle(&device, desired_state.clone())?;
     }
 
+
+    let mut color: Option<String> = None;
+
     if let Some(color_str) = matches.value_of("color") {
+        color = Some(color_str.to_string());
+    } else if let Some(settings) = settings {
+        if let Ok(default) = settings.get_str("default") {
+            color = Some(default.clone());
+        }
+    }
+
+    if let Some(color_str) = color {
         // this is dumb, but the api seems to require this pause so we don't
         // clobber the power state we just tried to set
         thread::sleep(time::Duration::from_millis(1000));
-        let parsed = Rgb::from_hex_str(color_str)?;
+        let parsed = Rgb::from_hex_str(&color_str)?;
         let color = Color {
             r: parsed.get_red() as u32,
             g: parsed.get_green() as u32,
