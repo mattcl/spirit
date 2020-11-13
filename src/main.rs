@@ -187,6 +187,10 @@ fn toggle(client: &Client, devices: &Vec<Device>, matches: &ArgMatches, settings
         client.toggle(&device, desired_state.clone())?;
     }
 
+    if matches.is_present("off") {
+        return Ok(());
+    }
+
 
     let mut color: Option<String> = None;
 
