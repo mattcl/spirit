@@ -12,4 +12,7 @@ lto = true
 clap = "*"
 colorsys = "0.6.0"
 config = "0.10"
+dirs = "3.0.1"
 govee-rs = { git = "https://github.com/mattcl/govee-rs" }
+serde = "1.0.117"
+serde_derive = "1.0.117"

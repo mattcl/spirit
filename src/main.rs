@@ -1,9 +1,5 @@
 use std::collections::HashSet;
-use std::ffi::OsStr;
-use std::path::Path;
 use std::process::Command;
-use std::thread;
-use std::time;
 
 use clap::{
     crate_authors,
@@ -19,23 +15,24 @@ use govee_rs::{API_BASE, Client};
 use govee_rs::schema::{Color, Device, PowerState};
 
 use crate::error::{Result, SpiritError, UnwrapOrExit};
-
-use config;
+use crate::settings::Settings;
 
 mod error;
+mod settings;
+
 
 fn main() {
-    let settings = load_config().unwrap_or_exit("invalid config file");
+    let settings = Settings::new().unwrap_or_exit("Could not load spirit.toml file");
 
     let mut success_color = "#00ff00".to_string();
     let mut fail_color = "#ff0000".to_string();
 
     if let Some(ref settings) = settings {
-        if let Ok(success) = settings.get_str("success") {
+        if let Some(ref success) = settings.success {
             success_color = success.clone();
         }
 
-        if let Ok(fail) = settings.get_str("fail") {
+        if let Some(ref fail) = settings.fail {
             fail_color = fail.clone();
         }
     }
@@ -56,6 +53,14 @@ fn main() {
                 .required(false)
         )
         .arg(
+            Arg::with_name("all")
+                .help("operate on all devices regardless of config")
+                .long("all")
+                .short("a")
+                .required(false)
+                .conflicts_with("device")
+        )
+        .arg(
             Arg::with_name("device")
                 .help("device name - if not provided, will operate on all devices")
                 .long("device")
@@ -64,6 +69,7 @@ fn main() {
                 .multiple(true)
                 .number_of_values(1)
                 .required(false)
+                .conflicts_with("all")
         )
         .subcommand(
             App::new("toggle")
@@ -121,11 +127,11 @@ fn main() {
     let matches = app.clone().get_matches();
 
     let client = make_client(&matches).unwrap_or_exit("GOVEE_KEY env var must be set");
-    let devices = get_devices(&client, &matches).unwrap_or_exit("Could not fetch list of devices");
+    let devices = get_devices(&client, &matches, &settings).unwrap_or_exit("Could not fetch list of devices");
 
     match matches.subcommand() {
         ("toggle", Some(toggle_matches)) => {
-            toggle(&client, &devices, toggle_matches, settings).unwrap_or_exit("Could not toggle power state");
+            toggle(&client, &devices, toggle_matches, &settings).unwrap_or_exit("Could not toggle power state");
         },
         ("check", Some(check_matches)) => {
             check(&client, &devices, check_matches).unwrap_or_exit("Could not check given command");
@@ -138,16 +144,6 @@ fn main() {
     };
 }
 
-fn load_config() -> Result<Option<config::Config>> {
-    let mut settings = config::Config::new();
-    // TODO: make this configurable - MCL - 2020-11-10
-    if Path::new(OsStr::new("spirit.toml")).exists() {
-        Ok(Some(settings.merge(config::File::with_name("spirit"))?.to_owned()))
-    } else {
-        Ok(None)
-    }
-}
-
 fn make_client(matches: &ArgMatches) -> Result<Client> {
     if let Some(key) = matches.value_of("govee_key") {
         return Ok(Client::new(API_BASE, key));
@@ -156,56 +152,61 @@ fn make_client(matches: &ArgMatches) -> Result<Client> {
     Err(SpiritError::Error("must either supply govee key or set GOVEE_KEY".to_string()))
 }
 
-fn get_devices(client: &Client, matches: &ArgMatches) -> Result<Vec<Device>> {
+fn get_devices(client: &Client, matches: &ArgMatches, settings: &Option<Settings>) -> Result<Vec<Device>> {
     let devices = client.devices()?.devices;
 
-    if matches.is_present("device") {
-        let device_names: HashSet<&str> = matches.values_of("device").unwrap().collect();
-        let filtered_devices: Vec<Device> = devices
-            .into_iter()
-            .filter(|device| device_names.contains(device.name.as_str()))
-            .collect();
+    if !matches.is_present("all") {
+        if matches.is_present("device") {
+            let device_names: HashSet<&str> = matches.values_of("device").unwrap().collect();
+            let filtered_devices: Vec<Device> = devices
+                .into_iter()
+                .filter(|device| device_names.contains(device.name.as_str()))
+                .collect();
 
-        if filtered_devices.len() < 1 {
-            return Err(SpiritError::Error("No devices matched".to_string()));
+            if filtered_devices.len() < 1 {
+                return Err(SpiritError::Error("No devices matched".to_string()));
+            }
+
+            return Ok(filtered_devices);
+        } else if let Some(settings) = settings {
+            if let Some(ref device_names) = settings.devices {
+                let filtered_devices: Vec<Device> = devices
+                    .into_iter()
+                    .filter(|device| device_names.contains(&device.name))
+                    .collect();
+
+                if filtered_devices.len() < 1 {
+                    return Err(SpiritError::Error("No devices matched".to_string()));
+                }
+
+                return Ok(filtered_devices);
+            }
         }
-
-        return Ok(filtered_devices);
     }
 
     Ok(devices)
 }
 
-fn toggle(client: &Client, devices: &Vec<Device>, matches: &ArgMatches, settings: Option<config::Config>) -> Result<()> {
-    let mut desired_state = PowerState::On;
-
+fn toggle(client: &Client, devices: &Vec<Device>, matches: &ArgMatches, settings: &Option<Settings>) -> Result<()> {
     if matches.is_present("off") {
-        desired_state = PowerState::Off;
-    }
+        for device in devices {
+            client.toggle(&device, PowerState::Off)?;
+        }
 
-    for device in devices {
-        client.toggle(&device, desired_state.clone())?;
-    }
-
-    if matches.is_present("off") {
         return Ok(());
     }
-
 
     let mut color: Option<String> = None;
 
     if let Some(color_str) = matches.value_of("color") {
         color = Some(color_str.to_string());
     } else if let Some(settings) = settings {
-        if let Ok(default) = settings.get_str("default") {
+        if let Some(ref default) = settings.default {
             color = Some(default.clone());
         }
     }
 
     if let Some(color_str) = color {
-        // this is dumb, but the api seems to require this pause so we don't
-        // clobber the power state we just tried to set
-        thread::sleep(time::Duration::from_millis(1000));
         let parsed = Rgb::from_hex_str(&color_str)?;
         let color = Color {
             r: parsed.get_red() as u32,
@@ -215,6 +216,10 @@ fn toggle(client: &Client, devices: &Vec<Device>, matches: &ArgMatches, settings
 
         for device in devices {
             client.set_color(&device, &color)?;
+        }
+    } else {
+        for device in devices {
+            client.toggle(&device, PowerState::On)?;
         }
     }
 
