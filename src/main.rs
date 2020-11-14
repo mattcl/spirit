@@ -1,25 +1,16 @@
 use std::collections::HashSet;
 use std::process::Command;
 
-use clap::{
-    crate_authors,
-    crate_description,
-    crate_version,
-    App,
-    AppSettings,
-    Arg,
-    ArgMatches,
-};
+use clap::{crate_authors, crate_description, crate_version, App, AppSettings, Arg, ArgMatches};
 use colorsys::Rgb;
-use govee_rs::{API_BASE, Client};
 use govee_rs::schema::{Color, Device, PowerState};
+use govee_rs::{Client, API_BASE};
 
 use crate::error::{Result, SpiritError, UnwrapOrExit};
 use crate::settings::Settings;
 
 mod error;
 mod settings;
-
 
 fn main() {
     let settings = Settings::new().unwrap_or_exit("Could not load spirit.toml file");
@@ -50,7 +41,7 @@ fn main() {
                 .short("k")
                 .env("GOVEE_KEY")
                 .hide_env_values(true)
-                .required(false)
+                .required(false),
         )
         .arg(
             Arg::with_name("all")
@@ -58,7 +49,7 @@ fn main() {
                 .long("all")
                 .short("a")
                 .required(false)
-                .conflicts_with("device")
+                .conflicts_with("device"),
         )
         .arg(
             Arg::with_name("device")
@@ -69,7 +60,7 @@ fn main() {
                 .multiple(true)
                 .number_of_values(1)
                 .required(false)
-                .conflicts_with("all")
+                .conflicts_with("all"),
         )
         .subcommand(
             App::new("toggle")
@@ -78,13 +69,13 @@ fn main() {
                     Arg::with_name("on")
                         .help("set the desired state to on (default)")
                         .long("on")
-                        .conflicts_with("off")
+                        .conflicts_with("off"),
                 )
                 .arg(
                     Arg::with_name("off")
                         .help("set the desired state to off")
                         .long("off")
-                        .conflicts_with("on")
+                        .conflicts_with("on"),
                 )
                 .arg(
                     Arg::with_name("color")
@@ -92,8 +83,8 @@ fn main() {
                         .short("c")
                         .help("the color to set the lights to when turning on")
                         .conflicts_with("off")
-                        .takes_value(true)
-                )
+                        .takes_value(true),
+                ),
         )
         .subcommand(
             App::new("check")
@@ -104,7 +95,7 @@ fn main() {
                         .short("s")
                         .help("hex color to set on success")
                         .env("SPIRIT_SUCCESS_COLOR")
-                        .default_value(&success_color)
+                        .default_value(&success_color),
                 )
                 .arg(
                     Arg::with_name("fail")
@@ -112,27 +103,28 @@ fn main() {
                         .short("f")
                         .help("hex color to set on fail")
                         .env("SPIRIT_FAIL_COLOR")
-                        .default_value(&fail_color)
+                        .default_value(&fail_color),
                 )
                 .arg(
                     Arg::with_name("cmd")
                         .help("command to run")
                         .required(true)
                         .multiple(true)
-                        .last(true)
+                        .last(true),
                 ),
         );
-
 
     let matches = app.clone().get_matches();
 
     let client = make_client(&matches).unwrap_or_exit("GOVEE_KEY env var must be set");
-    let devices = get_devices(&client, &matches, &settings).unwrap_or_exit("Could not fetch list of devices");
+    let devices =
+        get_devices(&client, &matches, &settings).unwrap_or_exit("Could not fetch list of devices");
 
     match matches.subcommand() {
         ("toggle", Some(toggle_matches)) => {
-            toggle(&client, &devices, toggle_matches, &settings).unwrap_or_exit("Could not toggle power state");
-        },
+            toggle(&client, &devices, toggle_matches, &settings)
+                .unwrap_or_exit("Could not toggle power state");
+        }
         ("check", Some(check_matches)) => {
             check(&client, &devices, check_matches).unwrap_or_exit("Could not check given command");
         }
@@ -149,10 +141,16 @@ fn make_client(matches: &ArgMatches) -> Result<Client> {
         return Ok(Client::new(API_BASE, key));
     }
 
-    Err(SpiritError::Error("must either supply govee key or set GOVEE_KEY".to_string()))
+    Err(SpiritError::Error(
+        "must either supply govee key or set GOVEE_KEY".to_string(),
+    ))
 }
 
-fn get_devices(client: &Client, matches: &ArgMatches, settings: &Option<Settings>) -> Result<Vec<Device>> {
+fn get_devices(
+    client: &Client,
+    matches: &ArgMatches,
+    settings: &Option<Settings>,
+) -> Result<Vec<Device>> {
     let devices = client.devices()?.devices;
 
     if !matches.is_present("all") {
@@ -187,7 +185,12 @@ fn get_devices(client: &Client, matches: &ArgMatches, settings: &Option<Settings
     Ok(devices)
 }
 
-fn toggle(client: &Client, devices: &Vec<Device>, matches: &ArgMatches, settings: &Option<Settings>) -> Result<()> {
+fn toggle(
+    client: &Client,
+    devices: &Vec<Device>,
+    matches: &ArgMatches,
+    settings: &Option<Settings>,
+) -> Result<()> {
     if matches.is_present("off") {
         for device in devices {
             client.toggle(&device, PowerState::Off)?;

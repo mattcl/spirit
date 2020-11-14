@@ -28,7 +28,9 @@ impl Settings {
                     settings.merge(config::File::with_name(path))?;
                     loaded = true;
                 } else {
-                    return Err(SpiritError::Error("Could not make global config file path".to_string()));
+                    return Err(SpiritError::Error(
+                        "Could not make global config file path".to_string(),
+                    ));
                 }
             }
         }

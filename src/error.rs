@@ -41,9 +41,7 @@ impl std::error::Error for SpiritError {
 impl std::fmt::Display for SpiritError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match *self {
-            SpiritError::Error(ref msg) => {
-                write!(f, "{}", msg)
-            },
+            SpiritError::Error(ref msg) => write!(f, "{}", msg),
             SpiritError::ConfigError(ref err) => err.fmt(f),
             SpiritError::EnvError(ref err) => err.fmt(f),
             SpiritError::GoveeError(ref err) => err.fmt(f),
