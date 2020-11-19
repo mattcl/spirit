@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::process::Command;
 
 use clap::{crate_authors, crate_description, crate_version, App, AppSettings, Arg, ArgMatches};
@@ -7,7 +7,7 @@ use govee_rs::schema::{Color, Device, PowerState};
 use govee_rs::{Client, API_BASE};
 
 use crate::error::{Result, SpiritError, UnwrapOrExit};
-use crate::settings::Settings;
+use crate::settings::{Settings, DeviceSetting};
 
 mod error;
 mod settings;
@@ -36,7 +36,7 @@ fn main() {
         .global_setting(AppSettings::ColoredHelp)
         .arg(
             Arg::with_name("govee_key")
-                .help("gove API key")
+                .help("Gove API key")
                 .long("key")
                 .short("k")
                 .env("GOVEE_KEY")
@@ -45,7 +45,7 @@ fn main() {
         )
         .arg(
             Arg::with_name("all")
-                .help("operate on all devices regardless of config")
+                .help("Operate on all devices regardless of config")
                 .long("all")
                 .short("a")
                 .required(false)
@@ -53,7 +53,7 @@ fn main() {
         )
         .arg(
             Arg::with_name("device")
-                .help("device name - if not provided, will operate on all devices")
+                .help("Device name - if not provided, will operate on all devices")
                 .long("device")
                 .short("d")
                 .takes_value(true)
@@ -63,17 +63,21 @@ fn main() {
                 .conflicts_with("all"),
         )
         .subcommand(
+            App::new("info")
+                .about("Displays the info for a device")
+        )
+        .subcommand(
             App::new("toggle")
-                .about("toggle device(s)")
+                .about("Toggle device(s)")
                 .arg(
                     Arg::with_name("on")
-                        .help("set the desired state to on (default)")
+                        .help("Set the desired state to on (default)")
                         .long("on")
                         .conflicts_with("off"),
                 )
                 .arg(
                     Arg::with_name("off")
-                        .help("set the desired state to off")
+                        .help("Set the desired state to off")
                         .long("off")
                         .conflicts_with("on"),
                 )
@@ -81,19 +85,19 @@ fn main() {
                     Arg::with_name("color")
                         .long("color")
                         .short("c")
-                        .help("the color to set the lights to when turning on")
+                        .help("The color to set the lights to when turning on")
                         .conflicts_with("off")
                         .takes_value(true),
                 ),
         )
         .subcommand(
             App::new("check")
-                .about("reacts to success or fail")
+                .about("Reacts to success or fail")
                 .arg(
                     Arg::with_name("success")
                         .long("success")
                         .short("s")
-                        .help("hex color to set on success")
+                        .help("Hex color to set on success")
                         .env("SPIRIT_SUCCESS_COLOR")
                         .default_value(&success_color),
                 )
@@ -101,13 +105,13 @@ fn main() {
                     Arg::with_name("fail")
                         .long("fail")
                         .short("f")
-                        .help("hex color to set on fail")
+                        .help("Hex color to set on fail")
                         .env("SPIRIT_FAIL_COLOR")
                         .default_value(&fail_color),
                 )
                 .arg(
                     Arg::with_name("cmd")
-                        .help("command to run")
+                        .help("Command to run")
                         .required(true)
                         .multiple(true)
                         .last(true),
@@ -121,6 +125,9 @@ fn main() {
         get_devices(&client, &matches, &settings).unwrap_or_exit("Could not fetch list of devices");
 
     match matches.subcommand() {
+        ("info", Some(_)) => {
+            info(&client, &devices).unwrap_or_exit("Could not get device info");
+        }
         ("toggle", Some(toggle_matches)) => {
             toggle(&client, &devices, toggle_matches, &settings)
                 .unwrap_or_exit("Could not toggle power state");
@@ -167,22 +174,28 @@ fn get_devices(
 
             return Ok(filtered_devices);
         } else if let Some(settings) = settings {
-            if let Some(ref device_names) = settings.devices {
-                let filtered_devices: Vec<Device> = devices
-                    .into_iter()
-                    .filter(|device| device_names.contains(&device.name))
-                    .collect();
+            let device_names = settings.device_settings();
+            let filtered_devices: Vec<Device> = devices
+                .into_iter()
+                .filter(|device| device_names.contains_key(&device.name))
+                .collect();
 
-                if filtered_devices.len() < 1 {
-                    return Err(SpiritError::Error("No devices matched".to_string()));
-                }
-
-                return Ok(filtered_devices);
+            if filtered_devices.len() < 1 {
+                return Err(SpiritError::Error("No devices matched".to_string()));
             }
+
+            return Ok(filtered_devices);
         }
     }
 
     Ok(devices)
+}
+
+fn info(client: &Client, devices: &Vec<Device>) -> Result<()> {
+    for device in devices {
+        println!("{:#?}", client.state(&device)?);
+    }
+    Ok(())
 }
 
 fn toggle(
@@ -199,10 +212,33 @@ fn toggle(
         return Ok(());
     }
 
-    let mut color: Option<String> = None;
+    let device_settings = match settings {
+        Some(settings) => settings.device_settings(),
+        None => HashMap::new()
+    };
 
+    for device in devices {
+        if let Some(color) = get_color(device, matches, settings, &device_settings)? {
+            client.set_color(&device, &color)?;
+        } else {
+            client.toggle(&device, PowerState::On)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn get_color(device: &Device, matches: &ArgMatches, settings: &Option<Settings>, device_settings: &HashMap<String, DeviceSetting>) -> Result<Option<Color>> {
+    let device_color = match device_settings.get(&device.name) {
+        Some(setting) => setting.color()?,
+        None => None
+    };
+
+    let mut color: Option<String> = None;
     if let Some(color_str) = matches.value_of("color") {
         color = Some(color_str.to_string());
+    } else if let Some(device_color) = device_color {
+        return Ok(Some(device_color))
     } else if let Some(settings) = settings {
         if let Some(ref default) = settings.default {
             color = Some(default.clone());
@@ -211,22 +247,14 @@ fn toggle(
 
     if let Some(color_str) = color {
         let parsed = Rgb::from_hex_str(&color_str)?;
-        let color = Color {
+        Ok(Some(Color {
             r: parsed.get_red() as u32,
             g: parsed.get_green() as u32,
             b: parsed.get_blue() as u32,
-        };
-
-        for device in devices {
-            client.set_color(&device, &color)?;
-        }
+        }))
     } else {
-        for device in devices {
-            client.toggle(&device, PowerState::On)?;
-        }
+        Ok(None)
     }
-
-    Ok(())
 }
 
 fn check(client: &Client, devices: &Vec<Device>, matches: &ArgMatches) -> Result<()> {
