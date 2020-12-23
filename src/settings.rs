@@ -18,12 +18,6 @@ pub struct Settings {
     pub fail: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
-pub struct DeviceSetting {
-    pub name: String,
-    pub color: Option<String>,
-}
-
 impl Settings {
     pub fn new() -> Result<Option<Self>> {
         let mut settings = config::Config::new();
@@ -55,7 +49,7 @@ impl Settings {
         }
     }
 
-    pub fn device_settings(&self) -> HashMap<String, DeviceSetting> {
+    pub fn device_settings(&self) -> DeviceSettingMap {
         let mut map = HashMap::new();
         if let Some(ref devices) = self.devices {
             for setting in devices {
@@ -63,8 +57,16 @@ impl Settings {
             }
         }
 
-        map
+        DeviceSettingMap(map)
     }
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct DeviceSetting {
+    pub name: String,
+    pub color: Option<String>,
+    pub success: Option<String>,
+    pub fail: Option<String>,
 }
 
 impl DeviceSetting {
@@ -83,3 +85,53 @@ impl DeviceSetting {
         }
     }
 }
+
+#[derive(Debug, Default)]
+pub struct DeviceSettingMap(pub HashMap<String, DeviceSetting>);
+
+impl DeviceSettingMap {
+    pub fn get(&self, name: &str) -> Option<&DeviceSetting> {
+        self.0.get(name)
+    }
+
+    pub fn default_color(&self, name: &str, force: Option<&str>, default: Option<&str>) -> Result<Option<Color>> {
+        let device_color = self.get(name).and_then(|s| s.color.clone());
+        self.pick_color(force, device_color, default)
+    }
+
+    pub fn success_color(&self, name: &str, default: Option<&str>) -> Result<Option<Color>> {
+        let device_color = self.get(name).and_then(|s| s.success.clone());
+        self.pick_color(None, device_color, default)
+    }
+
+    pub fn fail_color(&self, name: &str, default: Option<&str>) -> Result<Option<Color>> {
+        let device_color = self.get(name).and_then(|s| s.fail.clone());
+        self.pick_color(None, device_color, default)
+    }
+
+    fn pick_color(&self, force: Option<&str>, device: Option<String>, default: Option<&str>) -> Result<Option<Color>> {
+        let color = if let Some(color_str) = force {
+            Some(color_str.to_string())
+        } else if let Some(device_color) = device {
+            Some(device_color)
+        } else if let Some(default) = default {
+            Some(default.to_string())
+        } else {
+            None
+        };
+
+        if let Some(color_str) = color {
+            let parsed = Rgb::from_hex_str(&color_str)?;
+            Ok(Some(Color {
+                r: parsed.get_red() as u32,
+                g: parsed.get_green() as u32,
+                b: parsed.get_blue() as u32,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+
+

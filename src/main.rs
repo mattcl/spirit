@@ -7,7 +7,7 @@ use govee_rs::schema::{Color, Device, PowerState};
 use govee_rs::{Client, API_BASE};
 
 use crate::error::{Result, SpiritError, UnwrapOrExit};
-use crate::settings::{Settings, DeviceSetting};
+use crate::settings::{Settings, DeviceSetting, DeviceSettingMap};
 
 mod error;
 mod settings;
@@ -133,7 +133,7 @@ fn main() {
                 .unwrap_or_exit("Could not toggle power state");
         }
         ("check", Some(check_matches)) => {
-            check(&client, &devices, check_matches).unwrap_or_exit("Could not check given command");
+            check(&client, &devices, check_matches, &settings).unwrap_or_exit("Could not check given command");
         }
         // If we weren't given a subcommand we know how to handle, display
         // the help message and exit.
@@ -177,7 +177,7 @@ fn get_devices(
             let device_names = settings.device_settings();
             let filtered_devices: Vec<Device> = devices
                 .into_iter()
-                .filter(|device| device_names.contains_key(&device.name))
+                .filter(|device| device_names.get(&device.name).is_some())
                 .collect();
 
             if filtered_devices.len() < 1 {
@@ -214,11 +214,14 @@ fn toggle(
 
     let device_settings = match settings {
         Some(settings) => settings.device_settings(),
-        None => HashMap::new()
+        None => DeviceSettingMap::default()
     };
 
+    let force = matches.value_of("color");
+    let default = settings.as_ref().and_then(|s| s.default.as_deref());
+
     for device in devices {
-        if let Some(color) = get_color(device, matches, settings, &device_settings)? {
+        if let Some(color) = device_settings.default_color(&device.name, force, default)? {
             client.set_color(&device, &color)?;
         } else {
             client.toggle(&device, PowerState::On)?;
@@ -228,38 +231,14 @@ fn toggle(
     Ok(())
 }
 
-fn get_color(device: &Device, matches: &ArgMatches, settings: &Option<Settings>, device_settings: &HashMap<String, DeviceSetting>) -> Result<Option<Color>> {
-    let device_color = match device_settings.get(&device.name) {
-        Some(setting) => setting.color()?,
-        None => None
+fn check(client: &Client, devices: &Vec<Device>, matches: &ArgMatches, settings: &Option<Settings>) -> Result<()> {
+    let success = matches.value_of("success");
+    let fail = matches.value_of("fail");
+
+    let device_settings = match settings {
+        Some(settings) => settings.device_settings(),
+        None => DeviceSettingMap::default()
     };
-
-    let mut color: Option<String> = None;
-    if let Some(color_str) = matches.value_of("color") {
-        color = Some(color_str.to_string());
-    } else if let Some(device_color) = device_color {
-        return Ok(Some(device_color))
-    } else if let Some(settings) = settings {
-        if let Some(ref default) = settings.default {
-            color = Some(default.clone());
-        }
-    }
-
-    if let Some(color_str) = color {
-        let parsed = Rgb::from_hex_str(&color_str)?;
-        Ok(Some(Color {
-            r: parsed.get_red() as u32,
-            g: parsed.get_green() as u32,
-            b: parsed.get_blue() as u32,
-        }))
-    } else {
-        Ok(None)
-    }
-}
-
-fn check(client: &Client, devices: &Vec<Device>, matches: &ArgMatches) -> Result<()> {
-    let success = Rgb::from_hex_str(matches.value_of("success").unwrap())?;
-    let fail = Rgb::from_hex_str(matches.value_of("fail").unwrap())?;
 
     let parsed: Vec<&str> = matches.values_of("cmd").unwrap().collect();
 
@@ -267,21 +246,12 @@ fn check(client: &Client, devices: &Vec<Device>, matches: &ArgMatches) -> Result
 
     let res = Command::new(cmd).args(args).status()?;
 
-    let mut color = Color {
-        r: success.get_red() as u32,
-        g: success.get_green() as u32,
-        b: success.get_blue() as u32,
-    };
-
-    if !res.success() {
-        color = Color {
-            r: fail.get_red() as u32,
-            g: fail.get_green() as u32,
-            b: fail.get_blue() as u32,
-        };
-    }
-
     for device in devices {
+        let color = if res.success() {
+            device_settings.success_color(&device.name, success)?
+        } else {
+            device_settings.fail_color(&device.name, fail)?
+        }.unwrap();
         client.set_color(&device, &color)?;
     }
 
