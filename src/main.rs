@@ -36,7 +36,7 @@ fn main() {
         .global_setting(AppSettings::ColoredHelp)
         .arg(
             Arg::with_name("govee_key")
-                .help("Gove API key")
+                .help("Govee API key")
                 .long("key")
                 .short("k")
                 .env("GOVEE_KEY")
