@@ -1,3 +1,4 @@
+use anyhow::{bail, Result};
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::path::Path;
@@ -5,17 +6,25 @@ use std::path::Path;
 use colorsys::Rgb;
 use config;
 use dirs;
-use govee_rs::schema::{Color};
+use govee_rs::schema::Color;
 use serde::Deserialize;
 
-use crate::error::{Result, SpiritError};
+fn default_success() -> String {
+    "#00ff00".into()
+}
+
+fn default_fail() -> String {
+    "#00ff00".into()
+}
 
 #[derive(Debug, Deserialize)]
 pub struct Settings {
     pub default: Option<String>,
     pub devices: Option<Vec<DeviceSetting>>,
-    pub success: Option<String>,
-    pub fail: Option<String>,
+    #[serde(default = "default_success")]
+    pub success: String,
+    #[serde(default = "default_fail")]
+    pub fail: String,
 }
 
 impl Settings {
@@ -30,9 +39,7 @@ impl Settings {
                     settings.merge(config::File::with_name(path))?;
                     loaded = true;
                 } else {
-                    return Err(SpiritError::Error(
-                        "Could not make global config file path".to_string(),
-                    ));
+                    bail!("Could not make global config file path");
                 }
             }
         }
@@ -69,23 +76,6 @@ pub struct DeviceSetting {
     pub fail: Option<String>,
 }
 
-impl DeviceSetting {
-    pub fn color(&self) -> Result<Option<Color>> {
-        if let Some(ref color_str) = self.color {
-            let parsed = Rgb::from_hex_str(&color_str)?;
-            Ok(Some(
-                Color {
-                    r: parsed.get_red() as u32,
-                    g: parsed.get_green() as u32,
-                    b: parsed.get_blue() as u32,
-                }
-            ))
-        } else {
-            Ok(None)
-        }
-    }
-}
-
 #[derive(Debug, Default)]
 pub struct DeviceSettingMap(pub HashMap<String, DeviceSetting>);
 
@@ -94,7 +84,12 @@ impl DeviceSettingMap {
         self.0.get(name)
     }
 
-    pub fn default_color(&self, name: &str, force: Option<&str>, default: Option<&str>) -> Result<Option<Color>> {
+    pub fn default_color(
+        &self,
+        name: &str,
+        force: Option<&str>,
+        default: Option<&str>,
+    ) -> Result<Option<Color>> {
         let device_color = self.get(name).and_then(|s| s.color.clone());
         self.pick_color(force, device_color, default)
     }
@@ -109,7 +104,12 @@ impl DeviceSettingMap {
         self.pick_color(None, device_color, default)
     }
 
-    fn pick_color(&self, force: Option<&str>, device: Option<String>, default: Option<&str>) -> Result<Option<Color>> {
+    fn pick_color(
+        &self,
+        force: Option<&str>,
+        device: Option<String>,
+        default: Option<&str>,
+    ) -> Result<Option<Color>> {
         let color = if let Some(color_str) = force {
             Some(color_str.to_string())
         } else if let Some(device_color) = device {
@@ -123,15 +123,12 @@ impl DeviceSettingMap {
         if let Some(color_str) = color {
             let parsed = Rgb::from_hex_str(&color_str)?;
             Ok(Some(Color {
-                r: parsed.get_red() as u32,
-                g: parsed.get_green() as u32,
-                b: parsed.get_blue() as u32,
+                r: parsed.red() as u32,
+                g: parsed.green() as u32,
+                b: parsed.blue() as u32,
             }))
         } else {
             Ok(None)
         }
     }
 }
-
-
-

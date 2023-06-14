@@ -1,15 +1,17 @@
 [package]
 name = "spirit"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Matt Chun-Lum <matt@questionable.engineering>"]
 edition = "2018"
 description = "Change Govee device colors in response to command status"
+rust-version = "1.64.0"
 
 [profile.release]
 lto = true
 
 [dependencies]
-clap = "*"
+anyhow = "1"
+clap = { version = "4.3", features = ["cargo", "derive", "env"] }
 colorsys = "0.6.0"
 config = "0.10"
 dirs = "3.0.1"
