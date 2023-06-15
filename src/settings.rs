@@ -4,8 +4,7 @@ use std::ffi::OsStr;
 use std::path::Path;
 
 use colorsys::Rgb;
-use config;
-use dirs;
+
 use govee_rs::schema::Color;
 use serde::Deserialize;
 
@@ -114,10 +113,8 @@ impl DeviceSettingMap {
             Some(color_str.to_string())
         } else if let Some(device_color) = device {
             Some(device_color)
-        } else if let Some(default) = default {
-            Some(default.to_string())
         } else {
-            None
+            default.map(|default| default.to_string())
         };
 
         if let Some(color_str) = color {

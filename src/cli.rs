@@ -56,7 +56,7 @@ impl Cli {
                     .filter(|device| device_names.contains(&device.name))
                     .collect();
 
-                if filtered_devices.len() < 1 {
+                if filtered_devices.is_empty() {
                     bail!("No devices matched");
                 }
 
@@ -68,7 +68,7 @@ impl Cli {
                     .filter(|device| device_names.get(&device.name).is_some())
                     .collect();
 
-                if filtered_devices.len() < 1 {
+                if filtered_devices.is_empty() {
                     bail!("No devices matched");
                 }
 
@@ -104,7 +104,7 @@ pub struct Info;
 impl Info {
     pub fn run(&self, client: &Client, _settings: &Settings, devices: &Vec<Device>) -> Result<()> {
         for device in devices {
-            println!("{:#?}", client.state(&device)?);
+            println!("{:#?}", client.state(device)?);
         }
         Ok(())
     }
@@ -130,7 +130,7 @@ impl Toggle {
     pub fn run(&self, client: &Client, settings: &Settings, devices: &Vec<Device>) -> Result<()> {
         if self.off {
             for device in devices {
-                client.toggle(&device, PowerState::Off)?;
+                client.toggle(device, PowerState::Off)?;
             }
 
             return Ok(());
@@ -143,9 +143,9 @@ impl Toggle {
 
         for device in devices {
             if let Some(color) = device_settings.default_color(&device.name, force, default)? {
-                client.set_color(&device, &color)?;
+                client.set_color(device, &color)?;
             } else {
-                client.toggle(&device, PowerState::On)?;
+                client.toggle(device, PowerState::On)?;
             }
         }
 
@@ -192,7 +192,7 @@ impl Check {
                 device_settings.fail_color(&device.name, fail)?
             }
             .unwrap();
-            client.set_color(&device, &color)?;
+            client.set_color(device, &color)?;
         }
 
         std::process::exit(res.code().expect("could not get status code"));
