@@ -3,6 +3,7 @@ use anyhow::Result;
 mod cli;
 mod settings;
 
-fn main() -> Result<()> {
-    cli::Cli::run()
+#[tokio::main]
+async fn main() -> Result<()> {
+    cli::Cli::run().await
 }

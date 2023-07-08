@@ -1,6 +1,6 @@
 [package]
 name = "spirit"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Matt Chun-Lum <matt@questionable.engineering>"]
 edition = "2018"
 description = "Change Govee device colors in response to command status"
@@ -12,9 +12,9 @@ lto = true
 [dependencies]
 anyhow = "1"
 clap = { version = "4.3", features = ["cargo", "derive", "env"] }
-colorsys = "0.6.0"
 config = "0.10"
 dirs = "3.0.1"
 govee-rs = { git = "https://github.com/mattcl/govee-rs" }
 serde = "1.0.117"
 serde_derive = "1.0.117"
+tokio = { version = "1.25", features = ["full"] }

@@ -3,8 +3,8 @@ use std::{collections::HashSet, process::Command};
 use anyhow::{anyhow, bail, Context, Result};
 use clap::{Args, Parser, Subcommand};
 use govee_rs::{
-    schema::{Device, PowerState},
-    Client, API_BASE,
+    models::{Devices, PowerState},
+    GoveeClient, DEFAULT_API_URL,
 };
 
 use crate::settings::Settings;
@@ -32,47 +32,49 @@ pub struct Cli {
 }
 
 impl Cli {
-    pub fn run() -> Result<()> {
+    pub async fn run() -> Result<()> {
         let cli = Self::parse();
 
         let settings = Settings::new()
             .context("Could not load spirit.toml file")?
             .ok_or_else(|| anyhow!("spirit.toml evaluated to an empty settings object"))?;
 
-        let client = Client::new(API_BASE, &cli.govee_key);
+        let client = GoveeClient::new(DEFAULT_API_URL, &cli.govee_key)?;
 
         cli.command
-            .run(&client, &settings, &cli.get_devices(&client, &settings)?)
+            .run(
+                &client,
+                &settings,
+                &cli.get_devices(&client, &settings).await?,
+            )
+            .await
     }
 
-    fn get_devices(&self, client: &Client, settings: &Settings) -> Result<Vec<Device>> {
-        let devices = client.devices()?.devices;
+    async fn get_devices(&self, client: &GoveeClient, settings: &Settings) -> Result<Devices> {
+        let mut devices = client.devices().await?;
 
         if !self.all {
             if !self.device.is_empty() {
                 let device_names: HashSet<&String> = self.device.iter().collect();
-                let filtered_devices: Vec<Device> = devices
-                    .into_iter()
-                    .filter(|device| device_names.contains(&device.name))
-                    .collect();
+                devices.devices.retain(|d| device_names.contains(&d.name));
 
-                if filtered_devices.is_empty() {
+                if devices.is_empty() {
                     bail!("No devices matched");
                 }
 
-                Ok(filtered_devices)
+                Ok(devices)
             } else {
                 let device_names = settings.device_settings();
-                let filtered_devices: Vec<Device> = devices
-                    .into_iter()
-                    .filter(|device| device_names.get(&device.name).is_some())
-                    .collect();
 
-                if filtered_devices.is_empty() {
+                devices
+                    .devices
+                    .retain(|d| device_names.get(&d.name).is_some());
+
+                if devices.is_empty() {
                     bail!("No devices matched");
                 }
 
-                Ok(filtered_devices)
+                Ok(devices)
             }
         } else {
             Ok(devices)
@@ -88,11 +90,16 @@ pub enum Commands {
 }
 
 impl Commands {
-    pub fn run(&self, client: &Client, settings: &Settings, devices: &Vec<Device>) -> Result<()> {
+    pub async fn run(
+        &self,
+        client: &GoveeClient,
+        settings: &Settings,
+        devices: &Devices,
+    ) -> Result<()> {
         match self {
-            Self::Info(cmd) => cmd.run(client, settings, devices),
-            Self::Toggle(cmd) => cmd.run(client, settings, devices),
-            Self::Check(cmd) => cmd.run(client, settings, devices),
+            Self::Info(cmd) => cmd.run(client, settings, devices).await,
+            Self::Toggle(cmd) => cmd.run(client, settings, devices).await,
+            Self::Check(cmd) => cmd.run(client, settings, devices).await,
         }
     }
 }
@@ -102,9 +109,14 @@ impl Commands {
 pub struct Info;
 
 impl Info {
-    pub fn run(&self, client: &Client, _settings: &Settings, devices: &Vec<Device>) -> Result<()> {
-        for device in devices {
-            println!("{:#?}", client.state(device)?);
+    pub async fn run(
+        &self,
+        client: &GoveeClient,
+        _settings: &Settings,
+        devices: &Devices,
+    ) -> Result<()> {
+        for device in devices.iter() {
+            println!("{:#?}", client.state(device).await?);
         }
         Ok(())
     }
@@ -127,10 +139,15 @@ pub struct Toggle {
 }
 
 impl Toggle {
-    pub fn run(&self, client: &Client, settings: &Settings, devices: &Vec<Device>) -> Result<()> {
+    pub async fn run(
+        &self,
+        client: &GoveeClient,
+        settings: &Settings,
+        devices: &Devices,
+    ) -> Result<()> {
         if self.off {
-            for device in devices {
-                client.toggle(device, PowerState::Off)?;
+            for device in devices.iter() {
+                client.turn(device, PowerState::Off).await?;
             }
 
             return Ok(());
@@ -141,11 +158,11 @@ impl Toggle {
         let force = self.color.as_deref();
         let default = settings.default.as_deref();
 
-        for device in devices {
+        for device in devices.iter() {
             if let Some(color) = device_settings.default_color(&device.name, force, default)? {
-                client.set_color(device, &color)?;
+                client.color(device, color).await?;
             } else {
-                client.toggle(device, PowerState::On)?;
+                client.turn(device, PowerState::On).await?;
             }
         }
 
@@ -173,7 +190,12 @@ pub struct Check {
 }
 
 impl Check {
-    pub fn run(&self, client: &Client, settings: &Settings, devices: &Vec<Device>) -> Result<()> {
+    pub async fn run(
+        &self,
+        client: &GoveeClient,
+        settings: &Settings,
+        devices: &Devices,
+    ) -> Result<()> {
         let success = self.success.as_deref();
         let fail = self.fail.as_deref();
 
@@ -185,14 +207,14 @@ impl Check {
 
         let res = Command::new(cmd).args(args).status()?;
 
-        for device in devices {
+        for device in devices.iter() {
             let color = if res.success() {
                 device_settings.success_color(&device.name, success)?
             } else {
                 device_settings.fail_color(&device.name, fail)?
             }
             .unwrap();
-            client.set_color(device, &color)?;
+            client.color(device, color).await?;
         }
 
         std::process::exit(res.code().expect("could not get status code"));

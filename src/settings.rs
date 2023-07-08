@@ -3,9 +3,7 @@ use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::path::Path;
 
-use colorsys::Rgb;
-
-use govee_rs::schema::Color;
+use govee_rs::models::Color;
 use serde::Deserialize;
 
 fn default_success() -> String {
@@ -118,12 +116,8 @@ impl DeviceSettingMap {
         };
 
         if let Some(color_str) = color {
-            let parsed = Rgb::from_hex_str(&color_str)?;
-            Ok(Some(Color {
-                r: parsed.red() as u32,
-                g: parsed.green() as u32,
-                b: parsed.blue() as u32,
-            }))
+            let parsed = Color::parse(&color_str)?;
+            Ok(Some(parsed))
         } else {
             Ok(None)
         }
